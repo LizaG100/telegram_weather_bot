@@ -1,0 +1,231 @@
+import telebot
+from telebot import types
+import requests
+import time
+from  datetime import datetime
+import random
+import os
+
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+bot = telebot.TeleBot(TOKEN)
+API_KEY=os.getenv("OPENWEATHER_API_KEY")
+
+
+@bot.message_handler(commands=['start']) #команда start
+def start_command(message):
+    responses = [
+        "Hello, sweetie ❤ I am your bot. If you need help press /help",
+        "КУ! 🛸 I am your bot. If you need help press /help",
+        "How you doin'? 😉 I am your bot. If you need help press /help",
+        "Сейчас ты увидишь лучшее в мире привидение с мотором. Дикое, но симпатичное. 👻 I am your bot. If you need help press /help",
+        "Let’s get this party started! 🎉️ I am your bot. If you need help press /help",
+
+    ]
+
+    reply = random.choice(responses)
+    bot.send_message(message.chat.id, reply)
+
+
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    help_text = (
+        "Вот что я умею:\n"
+        "━━━━━━━━━━━━━━━\n"
+        "У меня есть *меню* внизу слева ↙\n"
+        "📍 Если хочешь узнать погоду, то сначала нажми *New Location*, а потом введи город. Если хочешь сменить город, то снова нажми *New Location*.\n"
+        "Затем можешь в *меню* выбрать погоду на 5 дней, 7 дней и сегодняшнюю\n"
+        "🖼 Можешь отправить фото или видео — я их сохраню!\n"
+        "📁 Отправь документ — я сохраню и его.\n\n"
+        "🎭 Команды:\n"
+        "`/start` — начать диалог\n"
+        "`/help` — показать это сообщение\n"
+        "`/bye` — попрощаться красиво 💔\n"
+        "`/sendphoto` — отправлю заранее выбранное фото 🖼️\n\n"
+    )
+    bot.send_message(message.chat.id, help_text, parse_mode="Markdown")
+
+
+commands = [
+    types.BotCommand("weather5", "You will see the 5-day weather"),
+    types.BotCommand("weather7", "You will see the 7-day weather"),
+    types.BotCommand("weather1", "You will see the today's weather"),
+    types.BotCommand("new_location", "If you want to change location")
+]
+
+bot.set_my_commands(commands)
+
+
+@bot.message_handler(commands=['bye']) # Команда bye
+def bye_command(message):
+    responses = [
+        "I'll be back🤖",
+        "As you wish 💔",
+        "Parting is such sweet sorrow 🥀",
+        "Winter is coming... but you're leaving ❄️",
+        "Пока! Не забудь проверить погоду — вдруг апокалипсис 🌪",
+        "May the Force be with you ✨",
+        "Бот уходит спать… но будет ждать тебя 💫",
+    ]
+
+    reply = random.choice(responses)
+    bot.send_message(message.chat.id, reply)
+
+
+@bot.message_handler(content_types=['photo']) # Получает мое фото и сохраняет его сюда
+def handle_photo(message):
+    file_info=bot.get_file(message.photo[-1].file_id)
+    downloaded_file=bot.download_file(file_info.file_path)
+
+    user_id = message.from_user.id
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"photo_{user_id}_{timestamp}.jpg"
+
+    with open(filename, "wb") as new_file:
+        new_file.write(downloaded_file)
+    bot.reply_to(message, "Изображение получено и сохранено")
+
+@bot.message_handler(commands=['sendphoto']) # по моей команде отправляет конкретную фотку в чат
+def send_photo(message):
+    with open("assets/skull.jpg", "rb") as photo:
+        bot.send_photo(message.chat.id, photo)
+
+
+
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    file_info = bot.get_file(message.video.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    with open("received_video.mp4", 'wb') as new_file:
+        new_file.write(downloaded_file)
+
+    bot.reply_to(message, "Видео получено и сохранено!")
+
+
+@bot.message_handler(content_types=['document'])
+def handle_document(message):
+    file_info = bot.get_file(message.document.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    with open(message.document.file_name, 'wb') as new_file:
+        new_file.write(downloaded_file)
+
+    bot.reply_to(message, "Документ получен и сохранен!")
+
+
+
+user_cities={}
+@bot.message_handler(commands=['new_location'])
+def get_new_location(message):
+    bot.send_message(message.chat.id, "Please enter city name 🌆:")
+    bot.register_next_step_handler(message, set_new_location)
+
+def set_new_location(message):
+
+    city_name = message.text.strip()
+    geo_url = f"https://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={API_KEY}"
+    geo_resp = requests.get(geo_url)
+    geo_data = geo_resp.json()
+
+    if geo_resp.status_code != 200 or geo_data.get("cod") != 200:
+        # если город не найден — удаляем старое значение
+        if message.chat.id in user_cities:
+            del user_cities[message.chat.id]
+
+
+        bot.send_message(message.chat.id, f"⚠️Oops! *{city_name}* doesn’t ring a bell 🌍 \nPlease check the spelling and try again 🌍",   parse_mode="Markdown")
+
+        # предлагаем ввести заново
+        bot.register_next_step_handler(message, set_new_location)
+        return
+
+    # если всё ок — сохраняем город
+    user_cities[message.chat.id] = city_name
+    bot.send_message(
+        message.chat.id,
+        f"Thank you, location set to *{city_name.title()}*",
+        parse_mode="Markdown"
+    )
+
+@bot.message_handler(commands=['weather5', 'weather7', 'weather1'])
+def handle_forecast(message):
+    user_id = message.chat.id
+    if user_id not in user_cities:
+        bot.send_message(user_id, "⚠️ Please set your location first using /new_location")
+        return
+
+    city = user_cities[user_id]
+
+    days=int(message.text[-1])
+
+    forecast_text = get_weather(city, days)
+    bot.send_message(user_id, forecast_text, parse_mode="Markdown")
+
+
+
+
+
+def get_weather(city, days=1):
+
+    geo_url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}"
+    geo_resp = requests.get(geo_url)
+    geo_data = geo_resp.json()
+
+    if geo_resp.status_code != 200 or "coord" not in geo_data:
+        return f"⚠️ Could not get weather for `{city}`. Please check the city name or try again later."
+
+    lat=geo_data['coord']['lat']
+    lon=geo_data['coord']['lon']
+
+    if days==1:
+        weather_url=f"https://api.openweathermap.org/data/3.0/onecall/overview?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
+    else:
+        weather_url=f"https://api.openweathermap.org/data/3.0/onecall?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
+    weather_resp=requests.get(weather_url)
+    weather_data = weather_resp.json()
+
+    emoji = {
+        "01d": "☀️",  # clear sky (day)
+        "01n": "🌙",  # clear sky (night)
+        "02d": "🌥",  # few clouds
+        "02n": "☁️",
+        "03d": "☁️",
+        "04d": "☁️",
+        "09d": "🌧",
+        "10d": "🌦",
+        "11d": "🌩",
+        "13d": "❄️",
+        "50d": "🌫",
+    }
+
+    s=f"*{city.title()}* — {days}-day weather forecast:\n\n"
+    if days==1:
+        return f"☂ Today' weather forecast in *{city.title()}*:\n { weather_data['weather_overview']}"
+    else:
+        for i in range(min(days, len(weather_data["daily"]))):
+            icon=emoji[weather_data["daily"][i]["weather"][0]["icon"]]
+            temp_day=weather_data["daily"][i]['temp']['day']
+            temp_night = weather_data["daily"][i]['temp']['night']
+            curr_weather=weather_data['daily'][i]['weather'][0]['description']
+            s+=f"{curr_weather} {icon}: {temp_day:.0f}°C (day) / {temp_night:.0f}°C (night)\n"
+
+        return s
+
+
+@bot.message_handler(content_types=['text']) # воспринимает любой текст без /
+def handle_text(message):
+    response = f"Вы написали: {message.text}"
+    bot.send_message(message.chat.id, response)
+
+
+
+while True:
+    try:
+        bot.polling(none_stop=True, timeout=30)
+    except Exception as e:
+        print(f'Oops! Error: {e}')
+        time.sleep(5)
+
+
+
+
